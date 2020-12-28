@@ -197,15 +197,34 @@ One can declare it as follows in Scala Native:
 
     def test(f: unsafe.CFuncPtr1[CString, Unit]): Unit = unsafe.extern
 
-`CFuncPtrN` types are SAM (single abstract method) traits. You
-can define them by creating a class that inherits from the corresponding
-trait:
+`CFuncPtrN` types are final classes containing pointer to underlying
+C function pointer. They automatically handle boxing call arguments
+and unboxing result. You can create them from C pointer using `CFuncPtr` helper methods:
 
 .. code-block:: scala
 
-   val myfuncptr = new unsafe.CFuncPtr0[Unit] {
-     def apply(): Unit = println("hi there!")
-   }
+    def fnDef(str: CString): CInt = ???
+
+    val anyPtr: Ptr[Byte] = CFuncPtr.toPtr {
+      CFuncPtr1.fromScalaFunction(fnDef)
+    }
+
+    type StringLengthFn = CFuncPtr1[CString, CInt]
+    val func: StringLengthFn = CFuncPtr.fromPtr[StringLengthFn](anyPtr)
+    func(c"hello")
+
+It's also possible to create `CFuncPtrN` from Scala `FunctionN`.
+You can do this by using implicit method conversion method
+from the corresponding companion object.
+
+.. code-block:: scala
+
+   import scalanative.unsafe.CFuncPtr0
+   def myFunc(): Unit = println("hi there!")
+
+   val myFuncPtr: CFuncPtr0[Unit] = CFuncPtr0.fromScalaFunction(myFunc)
+   val myImplFn: CFuncPtr0[Unit] = myFunc _
+   val myLambdaFuncPtr: CFuncPtr0[Unit] = () => println("hello!")
 
 On Scala 2.12 or newer, the Scala language automatically converts
 from closures to SAM types:
@@ -358,8 +377,20 @@ strings (similarly to C):
     val msg: CString = c"Hello, world!"
     stdio.printf(msg)
 
-Additionally, we also expose two helper functions ``unsafe.toCString`` and
-``unsafe.fromCString`` to convert between C-style and Java-style strings.
+It does not allow any octal values or escape characters not supported by Scala compiler, like ``\a`` or ``\?``, but also unicode escapes.
+It is possible to use C-style hex values up to value 0xFF, eg. ``c"Hello \x61\x62\x63"``
+
+Additionally, we also expose two helper functions ``unsafe.fromCString`` and ``unsafe.toCString``
+to convert between C-style `CString` (sequence of Bytes, usually interpreted as UTF-8 or ASCII)
+and Java-style `String` (sequence of 2-byte Chars usually interpreted as UTF-16).
+
+It's worth to remember that ``unsafe.toCString`` and `c"..."` interpreter cannot be used interchangeably as they handle literals differently.
+Helper methods ``unsafe.fromCString` and ``unsafe.toCString`` are charset aware.
+They will always assume `String` is UTF-16, and take a `Charset` parameter to know what encoding to assume for the byte string (`CString`) - if not present it is UTF-8.
+
+If passed a null as an argument, they will return a null of the appropriate
+type instead of throwing a NullPointerException.
+
 
 Platform-specific types
 -----------------------

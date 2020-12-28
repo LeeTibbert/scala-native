@@ -62,14 +62,14 @@ class Character(val _value: scala.Char)
   protected def unary_- : scala.Int = -_value.toInt
   // scalastyle:on disallow.space.before.token
 
-  protected def +(x: String): String = _value + x
+  protected def +(x: String): String = "" + _value + x
 
   protected def <<(x: scala.Int): scala.Int   = _value << x
-  protected def <<(x: scala.Long): scala.Int  = _value << x
+  protected def <<(x: scala.Long): scala.Int  = _value << x.toInt
   protected def >>>(x: scala.Int): scala.Int  = _value >>> x
-  protected def >>>(x: scala.Long): scala.Int = _value >>> x
+  protected def >>>(x: scala.Long): scala.Int = _value >>> x.toInt
   protected def >>(x: scala.Int): scala.Int   = _value >> x
-  protected def >>(x: scala.Long): scala.Int  = _value >> x
+  protected def >>(x: scala.Long): scala.Int  = _value >> x.toInt
 
   protected def ==(x: scala.Byte): scala.Boolean   = _value == x
   protected def ==(x: scala.Short): scala.Boolean  = _value == x
@@ -179,7 +179,7 @@ class Character(val _value: scala.Char)
 }
 
 object Character {
-  final val TYPE      = classOf[scala.Char]
+  final val TYPE      = scala.Predef.classOf[scala.scalanative.runtime.PrimitiveChar]
   final val MIN_VALUE = '\u0000'
   final val MAX_VALUE = '\uffff'
   final val SIZE      = 16
@@ -281,7 +281,7 @@ object Character {
     val indexMinus1 = index - 1
     val indexMinus2 = index - 2
 
-    val low = seq.charAt(indexMinus1)
+    val low = seq(indexMinus1)
 
     if (indexMinus2 < 0) {
       low

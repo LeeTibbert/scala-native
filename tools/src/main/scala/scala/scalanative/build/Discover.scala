@@ -1,8 +1,8 @@
 package scala.scalanative
 package build
 
+import java.io.File
 import java.nio.file.{Files, Path, Paths}
-import scala.collection.JavaConverters._
 import scala.util.Try
 import scala.sys.process._
 import scalanative.build.IO.RichPath
@@ -12,13 +12,20 @@ import scalanative.build.IO.RichPath
  */
 object Discover {
 
-  /** Compilation mode name that takes SCALANATIVE_MODE into account or default otherwise. */
-  def mode(): String =
-    getenv("SCALANATIVE_MODE").getOrElse(build.Mode.default.name)
+  /** Compilation mode name from SCALANATIVE_MODE env var or default. */
+  def mode(): Mode =
+    getenv("SCALANATIVE_MODE").map(build.Mode(_)).getOrElse(build.Mode.default)
 
-  /** LTO variant used for release mode. */
-  def LTO(): String =
-    getenv("SCALANATIVE_LTO").getOrElse("none")
+  def optimize(): Boolean =
+    getenv("SCALANATIVE_OPTIMIZE").forall(_.toBoolean)
+
+  /** LTO variant used for release mode from SCALANATIVE_LTO env var or default. */
+  def LTO(): LTO =
+    getenv("SCALANATIVE_LTO").map(build.LTO(_)).getOrElse(build.LTO.None)
+
+  /** GC variant used from SCALANATIVE_GC env var or default. */
+  def GC(): GC =
+    getenv("SCALANATIVE_GC").map(build.GC(_)).getOrElse(build.GC.default)
 
   /** Find the newest compatible clang binary. */
   def clang(): Path = {
@@ -34,13 +41,23 @@ object Discover {
     path
   }
 
+  private def filterExisting(paths: Seq[String]): Seq[String] =
+    paths.filter(new File(_).exists())
+
   /** Find default clang compilation options. */
   def compileOptions(): Seq[String] = {
     val includes = {
-      val includedir =
+      val llvmIncludeDir =
         Try(Process("llvm-config --includedir").lineStream_!.toSeq)
           .getOrElse(Seq.empty)
-      ("/usr/local/include" +: includedir).map(s => s"-I$s")
+
+      val includeDirs =
+        getenv("SCALANATIVE_INCLUDE_DIRS")
+          .map(_.split(File.pathSeparatorChar).toSeq)
+          .getOrElse(
+            filterExisting(Seq("/usr/local/include", "/opt/local/include")))
+
+      (includeDirs ++ llvmIncludeDir).map(s => s"-I$s")
     }
     includes :+ "-Qunused-arguments"
   }
@@ -48,43 +65,18 @@ object Discover {
   /** Find default options passed to the system's native linker. */
   def linkingOptions(): Seq[String] = {
     val libs = {
-      val libdir =
+      val llvmLibDir =
         Try(Process("llvm-config --libdir").lineStream_!.toSeq)
           .getOrElse(Seq.empty)
-      ("/usr/local/lib" +: libdir).map(s => s"-L$s")
+
+      val libDirs =
+        getenv("SCALANATIVE_LIB_DIRS")
+          .map(_.split(File.pathSeparatorChar).toSeq)
+          .getOrElse(filterExisting(Seq("/usr/local/lib", "/opt/local/lib")))
+
+      (libDirs ++ llvmLibDir).map(s => s"-L$s")
     }
     libs
-  }
-
-  /** Detect the target architecture.
-   *
-   *  @param clang   A path to the executable `clang`.
-   *  @param workdir A working directory where the compilation will take place.
-   *  @return The detected target triple describing the target architecture.
-   */
-  def targetTriple(clang: Path, workdir: Path): String = {
-    // Use non-standard extension to not include the ll file when linking (#639)
-    val targetc  = workdir.resolve("target").resolve("c.probe")
-    val targetll = workdir.resolve("target").resolve("ll.probe")
-    val compilec =
-      Seq(clang.abs, "-S", "-xc", "-emit-llvm", "-o", targetll.abs, targetc.abs)
-    def fail =
-      throw new BuildException("Failed to detect native target.")
-
-    IO.write(targetc, "int probe;".getBytes("UTF-8"))
-    val exit = Process(compilec, workdir.toFile).!
-    if (exit != 0) {
-      fail
-    } else {
-      Files
-        .readAllLines(targetll)
-        .asScala
-        .collectFirst {
-          case line if line.startsWith("target triple") =>
-            line.split("\"").apply(1)
-        }
-        .getOrElse(fail)
-    }
   }
 
   /** Tests whether the clang compiler is recent enough.
@@ -130,17 +122,13 @@ object Discover {
   /** Versions of clang which are known to work with Scala Native. */
   private[scalanative] val clangVersions =
     Seq(
+      ("11", ""),
       ("10", ""),
       ("9", ""),
       ("8", ""),
       ("7", ""),
-      ("7", "0"), // LLVM changed version numbering scheme, try both.
       ("6", "0"),
-      ("5", "0"),
-      ("4", "0"),
-      ("3", "9"),
-      ("3", "8"),
-      ("3", "7")
+      ("5", "0")
     )
 
   /** Discover concrete binary path using command name and
